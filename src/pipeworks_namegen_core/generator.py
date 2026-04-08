@@ -1,89 +1,114 @@
-"""Deterministic name generation primitives for Pipeworks namegen.
+"""Deterministic name generation primitives for PipeWorks namegen core.
 
-This module intentionally keeps the runtime generation behavior small and
-predictable:
+The core library intentionally stays small and pure:
 
-1. deterministic random number generation via ``random.Random(seed)``
-2. a minimal built-in syllable inventory for the ``simple`` pattern
-3. no external runtime dependencies
-
-The extraction goal for ``pipeworks-namegen-core`` is to preserve behavior that
-already exists in the legacy ``pipeworks_name_generation`` runtime while
-moving it into a dedicated library boundary.
+1. deterministic generation from explicit value pools
+2. optional built-in preset inventories for convenience
+3. no HTTP, SQLite, package-import, or deployment concerns
 """
 
 from __future__ import annotations
 
-import random
+from typing import Sequence
+
+from pipeworks_namegen_core.sampler import dedupe_preserve_order
 
 
 class NameGenerator:
-    """Generate phonetically-plausible names deterministically.
+    """Generate deterministic names from an internal syllable/value pool.
 
-    The primary invariant is deterministic output:
-    given identical inputs, this generator must always return identical values.
+    The primary invariant is stable output for identical inputs.
 
     Args:
-        pattern: Pattern set name. Currently only ``"simple"`` is supported.
+        pattern: Optional built-in preset name. Currently only ``"simple"`` is
+            provided.
+        source_values: Optional explicit value pool. When provided, it replaces
+            any preset pattern inventory.
 
     Raises:
-        ValueError: If ``pattern`` is not recognized.
+        ValueError: If no usable value pool can be resolved.
     """
 
-    # Hardcoded syllable inventory retained from the legacy runtime.
-    # Keeping this list in-core avoids runtime dependency on build-time assets
-    # while extraction/migration is in progress.
-    _SIMPLE_SYLLABLES = [
-        "ka",
-        "la",
-        "thin",
-        "mar",
-        "in",
-        "del",
-        "so",
-        "ra",
-        "vyn",
-        "tha",
-        "len",
-        "is",
-        "el",
-        "an",
-        "dor",
-        "mir",
-        "eth",
-        "al",
-        "grim",
-        "thor",
-        "ak",
-        "bor",
-        "din",
-        "wyn",
-        "krag",
-        "durn",
-        "mok",
-        "gor",
-        "thrak",
-        "zar",
-    ]
+    _PRESET_VALUE_POOLS: dict[str, tuple[str, ...]] = {
+        "simple": (
+            "ka",
+            "la",
+            "thin",
+            "mar",
+            "in",
+            "del",
+            "so",
+            "ra",
+            "vyn",
+            "tha",
+            "len",
+            "is",
+            "el",
+            "an",
+            "dor",
+            "mir",
+            "eth",
+            "al",
+            "grim",
+            "thor",
+            "ak",
+            "bor",
+            "din",
+            "wyn",
+            "krag",
+            "durn",
+            "mok",
+            "gor",
+            "thrak",
+            "zar",
+        ),
+    }
 
-    def __init__(self, pattern: str) -> None:
-        """Create a generator bound to one pattern set.
+    def __init__(
+        self,
+        pattern: str = "simple",
+        *,
+        source_values: Sequence[str] | None = None,
+    ) -> None:
+        """Create a generator bound to one resolved value pool.
 
         Args:
-            pattern: Pattern set name. Only ``"simple"`` is currently allowed.
+            pattern: Built-in preset name used when ``source_values`` is not
+                provided.
+            source_values: Optional explicit value pool.
 
         Raises:
-            ValueError: If ``pattern`` is unknown.
+            ValueError: If the resolved pool is empty or invalid.
         """
-        if pattern != "simple":
-            raise ValueError(
-                f"Unknown pattern: '{pattern}'. "
-                f"Only 'simple' is currently supported in core extraction."
-            )
-
         self.pattern = pattern
-        # Copy to protect class-level constant from accidental mutation.
-        self._syllables = self._SIMPLE_SYLLABLES.copy()
+        self._source_values = self._resolve_source_values(
+            pattern=pattern, source_values=source_values
+        )
+
+    @classmethod
+    def available_patterns(cls) -> tuple[str, ...]:
+        """Return known built-in preset names."""
+        return tuple(sorted(cls._PRESET_VALUE_POOLS))
+
+    @classmethod
+    def _resolve_source_values(
+        cls,
+        *,
+        pattern: str,
+        source_values: Sequence[str] | None,
+    ) -> tuple[str, ...]:
+        """Resolve the internal value pool from explicit values or a preset."""
+        if source_values is not None:
+            normalized = [str(value).strip() for value in source_values if str(value).strip()]
+            if not normalized:
+                raise ValueError("source_values must contain at least one non-empty value.")
+            return tuple(normalized)
+
+        preset = cls._PRESET_VALUE_POOLS.get(pattern)
+        if preset is None:
+            allowed = ", ".join(cls.available_patterns())
+            raise ValueError(f"Unknown pattern: {pattern!r}. Allowed patterns: {allowed}.")
+        return tuple(preset)
 
     def generate(self, seed: int, syllables: int | None = None) -> str:
         """Generate one deterministic name.
@@ -99,24 +124,25 @@ class NameGenerator:
         Raises:
             ValueError: If requested syllable count is out of range.
         """
-        # nosec B311: this is deterministic game content generation,
-        # not cryptographic randomness.
-        rng = random.Random(seed)  # nosec B311
+        from pipeworks_namegen_core.sampler import sample_values
 
         if syllables is None:
-            syllables = rng.randint(2, 3)
+            syllables = 2 if seed % 2 == 0 else 3
 
         if syllables < 1:
             raise ValueError("Syllable count must be at least 1")
-        if syllables > len(self._syllables):
+        if syllables > len(self._source_values):
             raise ValueError(
                 f"Cannot generate {syllables} syllables with only "
-                f"{len(self._syllables)} available syllables"
+                f"{len(self._source_values)} available values"
             )
 
-        # ``sample`` gives non-repeating selections which avoids generated names
-        # containing the exact same source syllable multiple times.
-        chosen = rng.sample(self._syllables, k=syllables)
+        chosen = sample_values(
+            self._source_values,
+            count=syllables,
+            seed=seed,
+            unique_only=True,
+        )
         return "".join(chosen).capitalize()
 
     def generate_batch(self, count: int, base_seed: int, unique: bool = True) -> list[str]:
@@ -137,6 +163,9 @@ class NameGenerator:
             ValueError: If a unique batch cannot be satisfied within bounded
                 attempts.
         """
+        if count < 0:
+            raise ValueError("count must be >= 0")
+
         names: list[str] = []
         seed = base_seed
         attempts = 0
@@ -164,4 +193,23 @@ class NameGenerator:
 
     def __repr__(self) -> str:
         """Return debug representation including selected pattern."""
-        return f"NameGenerator(pattern='{self.pattern}')"
+        return (
+            f"NameGenerator(pattern='{self.pattern}', "
+            f"source_values={len(self._source_values)} items)"
+        )
+
+    @property
+    def source_values(self) -> tuple[str, ...]:
+        """Return the resolved internal value pool."""
+        return self._source_values
+
+    def available_values(self, *, unique_only: bool = False) -> list[str]:
+        """Return the internal value pool as a list.
+
+        Args:
+            unique_only: When ``True``, remove duplicates while preserving
+                first-seen order.
+        """
+        if unique_only:
+            return dedupe_preserve_order(self._source_values)
+        return list(self._source_values)

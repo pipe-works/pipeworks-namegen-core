@@ -34,11 +34,23 @@ class TestBasicGeneration:
         """Known pattern should initialize without error."""
         gen = NameGenerator(pattern="simple")
         assert gen is not None
+        assert "simple" in gen.available_patterns()
 
     def test_generator_rejects_unknown_pattern(self) -> None:
         """Unknown pattern names should be rejected."""
         with pytest.raises(ValueError, match="Unknown pattern"):
             NameGenerator(pattern="nonexistent")
+
+    def test_generator_accepts_explicit_source_values(self) -> None:
+        """Explicit source values should be usable without relying on presets."""
+        gen = NameGenerator(source_values=["al", "fa", "beta"])
+        assert gen.source_values == ("al", "fa", "beta")
+        assert gen.generate(seed=2, syllables=2)
+
+    def test_generator_rejects_empty_explicit_source_values(self) -> None:
+        """Blank explicit value pools should fail fast."""
+        with pytest.raises(ValueError, match="at least one non-empty value"):
+            NameGenerator(source_values=["", "   "])
 
     def test_generated_names_are_capitalized(self) -> None:
         """Generated names should begin with an uppercase character."""
@@ -92,3 +104,9 @@ class TestBatchGeneration:
         batch2 = gen.generate_batch(count=5, base_seed=42)
 
         assert batch1 == batch2
+
+    def test_available_values_can_dedupe(self) -> None:
+        """Generator should expose its resolved pool in stable order."""
+        gen = NameGenerator(source_values=["al", "al", "fa"])
+        assert gen.available_values() == ["al", "al", "fa"]
+        assert gen.available_values(unique_only=True) == ["al", "fa"]
