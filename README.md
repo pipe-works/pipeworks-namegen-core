@@ -1,136 +1,126 @@
+[![CI](https://github.com/pipe-works/pipeworks-namegen-core/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks-namegen-core/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/pipe-works/pipeworks-namegen-core/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks-namegen-core) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/) [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 # pipeworks-namegen-core
 
-`pipeworks-namegen-core` is the pure deterministic library for PipeWorks name
-generation.
+`pipeworks-namegen-core` is the pure deterministic name-generation library in
+the PipeWorks namegen split. It owns the small, reusable primitives that higher
+layers build on: deterministic sampling, deterministic rendering, and the
+`NameGenerator` abstraction.
 
-It is the lowest-level runtime boundary in the three-repo split:
+## PipeWorks Workspace
 
-- `pipeworks-namegen-core` owns pure deterministic generation/rendering logic
-- `pipeworks-namegen-api` owns the HTTP/runtime contract and package-backed
-  service behavior
-- `pipeworks-namegen-lexicon` owns corpus, lexicon, and creator-facing
-  tooling
+These repositories are designed to live inside a shared PipeWorks workspace
+rooted at `/srv/work/pipeworks`.
 
-## Scope
+- `repos/` contains source checkouts only.
+- `venvs/` contains per-project virtual environments such as `pw-mud-server`.
+- `runtime/` contains mutable runtime state such as databases, exports, session
+  files, and caches.
+- `logs/` contains service-owned log output when a project writes logs outside
+  the process manager.
+- `config/` contains workspace-level configuration files that should not be
+  treated as source.
+- `bin/` contains optional workspace helper scripts.
+- `home/` is reserved for workspace-local user data when a project needs it.
 
-- deterministic generation primitives (`NameGenerator`)
-- deterministic rendering helpers (`render_name`, `render_names`)
-- deterministic value sampling helpers (`sample_values`)
-- no HTTP server, UI assets, or SQLite/runtime service concerns
-- no package-import, filename-mapping, or deployment ownership
+Across the PipeWorks ecosphere, the rule is simple: keep source in `repos/`,
+keep mutable state outside the repo checkout, and use explicit paths between
+repos when one project depends on another.
 
-## Library Model
+## What This Repo Owns
 
-This package should be boring:
+This repository is the source of truth for:
 
-- given the same inputs, it should produce the same outputs
-- consumers provide value pools or use a small built-in preset
-- no web/runtime/persistence assumptions leak into the library boundary
+- deterministic name generation via `NameGenerator`
+- deterministic value sampling via `sample_values`
+- deterministic rendering helpers such as `render_name` and `render_names`
+- a small public API intended to be embedded by runtime and UI consumers
 
-The preferred mental model is:
+This repository does not own:
 
-1. another repo or app gathers/owns candidate values
-2. `pipeworks-namegen-core` deterministically samples or renders them
-3. higher layers decide how those values are stored, exposed, or served
+- HTTP endpoints or browser applications
+- SQLite storage, package import, or runtime user state
+- corpus extraction, syllable-walk tooling, or package authoring
 
 ## Public API
 
-Current stable exports:
+Current top-level exports are:
 
 - `NameGenerator`
 - `sample_values`
 - `dedupe_preserve_order`
-- `RENDER_STYLES`
-- `normalize_render_style`
 - `render_name`
 - `render_names`
+- `normalize_render_style`
+- `RENDER_STYLES`
+- `healthcheck`
 
-`NameGenerator` supports two input modes:
+The design goal is stable behavior for identical inputs. This package should be
+side-effect free and boring to depend on.
 
-1. `pattern="simple"` for a tiny built-in preset inventory
-2. `source_values=[...]` for explicit caller-supplied value pools
+## Repository Layout
 
-When both concepts matter, `source_values` is the more important one. The
-built-in preset is a convenience surface, not the center of the design.
+- `src/pipeworks_namegen_core/generator.py` deterministic generation primitives
+- `src/pipeworks_namegen_core/sampler.py` deterministic value selection helpers
+- `src/pipeworks_namegen_core/renderer.py` render-style transforms
+- `tests/` pytest coverage for generator, sampler, renderer, and smoke checks
+- `docs/` project documentation
 
-## Determinism Guardrail
+## Quick Start
 
-This package uses isolated per-call RNG behavior and does not rely on
-module-global random state.
+Create a dedicated workspace venv and install the package in editable mode:
 
-This means:
-
-- identical inputs should produce identical outputs
-- the library should remain safe to call from APIs, CLIs, tests, and future UIs
-- consumers do not need to worry about shared module-global random state being
-  mutated elsewhere in the process
-
-## Quickstart
-
-```python
-from pipeworks_namegen_core import (
-    NameGenerator,
-    render_name,
-    sample_values,
-)
-
-gen = NameGenerator(pattern="simple")
-name = gen.generate(seed=42)
-print(name)                 # deterministic output for seed 42
-print(render_name(name, "upper"))
-
-values = ["alfa", "beta", "gamma"]
-print(sample_values(values, count=2, seed=7, unique_only=True))
+```bash
+python3 -m venv /srv/work/pipeworks/venvs/pw-namegen-core
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/pip install -e ".[dev]"
 ```
 
-Using explicit caller-supplied values:
+Minimal usage:
 
 ```python
-from pipeworks_namegen_core import NameGenerator
+from pipeworks_namegen_core import NameGenerator, render_name, sample_values
 
-gen = NameGenerator(source_values=["al", "fa", "beta", "grim"])
-print(gen.generate(seed=10, syllables=2))
-print(gen.available_values(unique_only=True))
+generator = NameGenerator(source_values=["ka", "la", "dor", "mir"])
+name = generator.generate(seed=42)
+styled = render_name(name, style="title")
+
+pool = sample_values(["ash", "elm", "rowan", "thorn"], count=2, seed=7, unique_only=True)
 ```
 
-Sampling without using `NameGenerator`:
+## Relationship To The Other Namegen Repos
 
-```python
-from pipeworks_namegen_core import sample_values
+- `pipeworks-namegen-core`
+  pure deterministic library boundary
+- `pipeworks-namegen-api`
+  canonical runtime HTTP contract and service-owned persistence
+- `pipeworks-namegen-lexicon`
+  creator tooling, corpus pipeline, package authoring, and consumer web apps
 
-values = ["alfa", "beta", "beta", "gamma"]
-print(sample_values(values, count=3, seed=11, unique_only=False))
-print(sample_values(values, count=3, seed=11, unique_only=True))
+The split is intentional. If a feature needs HTTP, persistence, package import,
+or browser workflow concerns, it probably does not belong here.
+
+## Development
+
+Run the local checks from the repo root:
+
+```bash
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/pytest
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/ruff check src tests
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/black --check src tests
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/mypy src
 ```
 
-Rendering generated names:
+If you need the docs toolchain:
 
-```python
-from pipeworks_namegen_core import render_names
-
-names = ["alfathin", "grimdor"]
-print(render_names(names, "title"))
+```bash
+/srv/work/pipeworks/venvs/pw-namegen-core/bin/pip install -e ".[docs]"
+make -C docs html
 ```
 
-## What Does Not Belong Here
+## Documentation
 
-This repo should not grow ownership of:
+Additional documentation lives in `docs/`.
 
-- HTTP route validation
-- SQLite package stores
-- imported package metadata or filename-mapping conventions
-- deployment templates or host config
-- creator workflow orchestration or corpus tooling
+## License
 
-If code depends on package ids, database rows, HTTP payloads, or deployment
-state, it probably belongs in `pipeworks-namegen-api` or
-`pipeworks-namegen-lexicon`, not here.
-
-## Compatibility Note
-
-`pattern="simple"` remains as a convenience preset, but the long-term design
-center for this package is explicit deterministic behavior from supplied value
-pools rather than hidden runtime state.
-
-The package should therefore evolve toward clearer pure-library contracts, not
-toward recreating monolithic runtime behavior inside `core`.
+[GPL-3.0-or-later](LICENSE)
