@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3](https://github.com/pipe-works/pipeworks-namegen-core/compare/pipeworks-namegen-core-v0.1.2...pipeworks-namegen-core-v0.1.3) (2026-04-13)
+
+
+### Documentation
+
+* **readthedocs:** add root config ([4ecd4f0](https://github.com/pipe-works/pipeworks-namegen-core/commit/4ecd4f00ff233724db7eb657da07e2d5c6f9bfc1))
+
+
+### Miscellaneous Chores
+
+* trigger release-please for core ([#8](https://github.com/pipe-works/pipeworks-namegen-core/issues/8)) ([7e08534](https://github.com/pipe-works/pipeworks-namegen-core/commit/7e08534ad34f5fa610fcff54e343844aadccc355))
+
 ## [0.1.2](https://github.com/pipe-works/pipeworks-namegen-core/compare/pipeworks-namegen-core-v0.1.1...pipeworks-namegen-core-v0.1.2) (2026-03-20)
 
 
